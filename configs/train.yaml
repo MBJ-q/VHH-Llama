@@ -1,0 +1,60 @@
+model:
+  name: VHH-Llama
+  max_position_embeddings: 256
+  num_hidden_layers: 6
+  hidden_size: 512
+  intermediate_size: 2048
+  num_attention_heads: 8
+  num_key_value_heads: 8
+  attention_dropout: 0.0
+  rms_norm_eps: 1.0e-6
+  rope_theta: 10000.0
+
+data:
+  train_csv: datasets/AbNativ2_Re_Plus/train.csv
+  val_csv: datasets/AbNativ2_Re_Plus/val.csv
+  max_length: 170
+
+train:
+  output_dir: Outputs/VHH-Llama
+  # Match version1's full training-step budget and learning-rate schedule.
+  max_steps: 390790
+  batch_size: 128
+  gradient_accumulation_steps: 1
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  logging_steps: 100
+  save_strategy: epoch
+  save_every_epoch: 0.2
+  save_total_limit: 30
+  num_workers: 4
+  seed: 42
+  fp16: false
+  bf16: true
+  device: [0,1,2,3]
+  resume_from_checkpoint: false
+
+mixed_infill:
+  enabled: false
+  # The following settings are used only when enabled is true.
+  vhh_span_probability: 0.15
+  min_span_length: 5
+  max_span_length: 15
+  task_seed: 1
+  span_length_seed: 2
+  span_position_seed: 3
+
+cdr3_sampling:
+  enabled: true
+  # Groups at or below this size are all retained in every sampler epoch.
+  full_keep_threshold: 100
+  # For n > threshold, selection ratio = (threshold / n) ** sampling_power.
+  # Keep ceil(n * selection ratio) samples without replacement per sampler epoch.
+  sampling_power: 0.3
+  seed: 10000
+
+validation:
+  eval_strategy: epoch
+  eval_every_epoch: 0.2
+  early_stopping_patience: 3

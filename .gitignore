@@ -1,0 +1,17 @@
+# Large datasets
+datasets/*
+!datasets/.gitkeep
+
+# Training outputs and checkpoints
+Outputs/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Common local files
+.DS_Store

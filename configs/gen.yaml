@@ -1,0 +1,22 @@
+model:
+  version: version1
+  # Accepts checkpoint-*, best_model, final_model, or an absolute model path.
+  checkpoint: best_model
+
+data:
+  input_csv: examples/therapeutic_vhh_scaffolds.csv
+
+generate:
+  # Number of generated sequences per GPU sampling round.
+  sampling_batch_size: 400
+  # Keep tail-end GPU sampling efficient when only a few unique sequences remain.
+  minimum_sampling_batch_size: 64
+  # Number of unique generated sequences to return for each input framework.
+  samples_return_per_input: 100000
+  # Hard per-framework limit that prevents an endless uniqueness loop.
+  max_sampling_attempts_per_input: 1000000
+  max_new_tokens: 36
+  temperature: 1.0
+  top_p: 0.9
+  seed: 42
+  device: [0]
