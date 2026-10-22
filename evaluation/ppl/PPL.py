@@ -31,8 +31,8 @@ except ImportError:
 
 
 DEFAULT_INPUT_CSV = PROJECT_ROOT / "datasets" / "test.csv"
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "Outputs" / "VHH-Llama"
-DEFAULT_EVAL_PPL_DIR = PROJECT_ROOT / "evaluation" / "ppl"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "VHH-Llama"
+DEFAULT_PPL_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "PPL"
 DEFAULT_MAX_LENGTH = 170
 CHECKPOINTS_DIR_NAME = "checkpoints"
 SPECIAL_META_COLUMNS = ("subject_species", "subject_name", "subject_sex")
@@ -190,7 +190,7 @@ def build_default_output_path(
         if version_name
         else checkpoint_path.name
     )
-    return DEFAULT_EVAL_PPL_DIR / f"ppl_{model_label}.csv"
+    return DEFAULT_PPL_OUTPUT_DIR / f"ppl_{model_label}.csv"
 
 
 def resolve_device(device_text: str) -> torch.device:

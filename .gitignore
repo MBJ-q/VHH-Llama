@@ -2,8 +2,8 @@
 datasets/*
 !datasets/.gitkeep
 
-# Training outputs and checkpoints
-Outputs/
+# Generated libraries, PPL results and training checkpoints
+/outputs/
 
 # Python cache
 __pycache__/

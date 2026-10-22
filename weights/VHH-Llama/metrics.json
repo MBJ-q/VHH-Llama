@@ -1,0 +1,10 @@
+{
+  "best_eval_loss": 0.6405894160270691,
+  "best_step": 219164,
+  "best_epoch": 8.80035335689046,
+  "metric_name": "eval_loss",
+  "selection": "lowest",
+  "source": "eval",
+  "saved_from": "trainer_callback",
+  "early_stopping_patience": 3
+}

@@ -36,7 +36,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "train.yaml"
 DEFAULT_TRAIN_CSV = (
     PROJECT_ROOT / "datasets" / "AbNativ2_Re_Plus" / "train.csv"
 )
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "Outputs" / "VHH-Llama"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "VHH-Llama"
 CHECKPOINTS_DIR_NAME = "checkpoints"
 FALSE_VALUES = {None, False, "", "false", "False", "none", "None", "null", "Null"}
 

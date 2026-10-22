@@ -16,8 +16,9 @@ data:
   max_length: 170
 
 train:
-  output_dir: Outputs/VHH-Llama
-  # Match version1's full training-step budget and learning-rate schedule.
+  # Save training runs under outputs/VHH-Llama/versionN/.
+  output_dir: outputs/VHH-Llama
+  # Maximum optimizer steps for this training run.
   max_steps: 390790
   batch_size: 128
   gradient_accumulation_steps: 1

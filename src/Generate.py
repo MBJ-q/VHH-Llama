@@ -28,8 +28,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "gen.yaml"
 DEFAULT_INPUT_CSV = (
     PROJECT_ROOT / "examples" / "therapeutic_vhh_scaffolds.csv"
 )
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "Outputs" / "VHH-Llama"
-CHECKPOINTS_DIR_NAME = "checkpoints"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "libs"
 REQUIRED_INPUT_COLUMNS = {"L_seq", "R_seq"}
 OUTPUT_COLUMNS = [
     "row_index",
@@ -42,7 +41,6 @@ OUTPUT_COLUMNS = [
 
 @dataclass
 class GenerateArgs:
-    version: str
     checkpoint: str
     minimum_sampling_batch_size: int
     max_sampling_attempts_per_input: int
@@ -119,7 +117,7 @@ def build_args_from_config(config: dict) -> GenerateArgs:
     data_config = dict(config.get("data") or {})
     generate_config = dict(config.get("generate") or {})
 
-    required_model_fields = ("version", "checkpoint")
+    required_model_fields = ("checkpoint",)
     missing_model_fields = [
         f"model.{field}"
         for field in required_model_fields
@@ -148,7 +146,6 @@ def build_args_from_config(config: dict) -> GenerateArgs:
 
     return GenerateArgs(
         input_csv=str(data_config.get("input_csv") or DEFAULT_INPUT_CSV),
-        version=str(model_config["version"]),
         checkpoint=str(model_config["checkpoint"]),
         minimum_sampling_batch_size=int(
             generate_config["minimum_sampling_batch_size"]
@@ -170,57 +167,20 @@ def build_args_from_config(config: dict) -> GenerateArgs:
     )
 
 
-def resolve_checkpoint_path(
-    checkpoint_text: str,
-    version: str,
-) -> Path:
-    checkpoint_path = Path(checkpoint_text).expanduser()
-    candidates: list[Path] = []
-
-    if checkpoint_path.is_absolute():
-        candidates.append(checkpoint_path)
-    else:
-        version_dir = DEFAULT_OUTPUT_ROOT / version
-        candidates.append(version_dir / checkpoint_path)
-        if checkpoint_path.name.startswith("checkpoint-"):
-            candidates.append(
-                version_dir / CHECKPOINTS_DIR_NAME / checkpoint_path.name
-            )
-
-        parts = checkpoint_path.parts
-        if (
-            len(parts) == 2
-            and parts[0].startswith("version")
-            and parts[1].startswith("checkpoint-")
-        ):
-            candidates.append(
-                DEFAULT_OUTPUT_ROOT / parts[0] / CHECKPOINTS_DIR_NAME / parts[1]
-            )
-
-        candidates.extend(
-            [
-                PROJECT_ROOT / checkpoint_path,
-                DEFAULT_OUTPUT_ROOT / checkpoint_path,
-            ]
-        )
-
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved.exists():
-            if not resolved.is_dir():
-                raise ValueError(f"Checkpoint path must be a directory: {resolved}")
-            return resolved
-
-    searched = "\n".join(f"  - {candidate.resolve()}" for candidate in candidates)
-    raise FileNotFoundError(f"Checkpoint not found. Searched:\n{searched}")
+def resolve_checkpoint_path(checkpoint_text: str) -> Path:
+    checkpoint_path = resolve_path(checkpoint_text)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    if not checkpoint_path.is_dir():
+        raise ValueError(f"Checkpoint path must be a directory: {checkpoint_path}")
+    return checkpoint_path
 
 
 def build_next_output_paths(
     output_dir: Path,
-    version: str,
     checkpoint_path: Path,
 ) -> tuple[Path, Path, Path]:
-    filename_prefix = f"gen_{version}_{checkpoint_path.name}"
+    filename_prefix = f"gen_{checkpoint_path.name}"
     filename_pattern = re.compile(
         rf"^{re.escape(filename_prefix)}\((\d+)\)\.csv$"
     )
@@ -259,8 +219,6 @@ def resolve_device(devices: Sequence[int]) -> torch.device:
 
 
 def validate_args(args: GenerateArgs) -> None:
-    if not args.version:
-        raise ValueError("model.version must not be empty")
     if not args.checkpoint:
         raise ValueError("model.checkpoint must not be empty")
     if args.sampling_batch_size <= 0:
@@ -476,14 +434,12 @@ def update_prompt_progress_bar(
 def generate(args: GenerateArgs, config_path: Path) -> None:
     validate_args(args)
     input_csv = resolve_path(args.input_csv)
-    output_dir = input_csv.parent
+    output_dir = DEFAULT_OUTPUT_DIR
     checkpoint_path = resolve_checkpoint_path(
         checkpoint_text=args.checkpoint,
-        version=args.version,
     )
     output_csv, output_config_yaml, output_stats_json = build_next_output_paths(
         output_dir,
-        args.version,
         checkpoint_path,
     )
     partial_output_csv = output_csv.with_suffix(f"{output_csv.suffix}.part")
@@ -529,6 +485,7 @@ def generate(args: GenerateArgs, config_path: Path) -> None:
     framework_stats: list[dict] = []
     failure_message: str | None = None
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(config_path, partial_config_yaml)
     with partial_output_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=OUTPUT_COLUMNS)
