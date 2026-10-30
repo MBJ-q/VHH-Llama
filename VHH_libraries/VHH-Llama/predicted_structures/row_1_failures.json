@@ -1,0 +1,15 @@
+{
+  "row_index": 1,
+  "failures": [
+    {
+      "filename": "row_1_sample_22319.pdb",
+      "sample_index": 22319,
+      "error": "row_1_sample_22319.pdb: AssertionError: Sequence missing too many residues to model correctly. Please give whole sequence:\nEVQLVESGGGLVQPGGSLRLSCAASGRTYDAMGWLRQAPGKEREFVAAISGSGDDTYYADSVKGRFTISRDNSKNTLYLQMNSLRPEDTAVYYCNVVLPLGNYDYGGSWYYRADLGRVGMYRHWGQGTLVTVSS"
+    },
+    {
+      "filename": "row_1_sample_58617.pdb",
+      "sample_index": 58617,
+      "error": "row_1_sample_58617.pdb: AssertionError: Sequence missing too many residues to model correctly. Please give whole sequence:\nEVQLVESGGGLVQPGGSLRLSCAASGRTYDAMGWLRQAPGKEREFVAAISGSGDDTYYADSVKGRFTISRDNSKNTLYLQMNSLRPEDTAVYYCAAQPIFPDVRNWGTSAYSDYVRADASYVYWGQGTLVTVSS"
+    }
+  ]
+}

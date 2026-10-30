@@ -36,6 +36,9 @@ OUTPUT_COLUMNS = [
     "generated_cdr3",
     "length",
     "eos_reached",
+    "name",
+    "L_seq",
+    "R_seq",
 ]
 
 
@@ -549,6 +552,9 @@ def generate(args: GenerateArgs, config_path: Path) -> None:
                                 "row_index": prompt_sample.row_index,
                                 "sample_index": unique_for_prompt,
                                 **sample_record,
+                                "name": prompt_sample.name,
+                                "L_seq": prompt_sample.l_seq,
+                                "R_seq": prompt_sample.r_seq,
                             }
                         )
                         unique_for_prompt += 1

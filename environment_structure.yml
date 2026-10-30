@@ -1,0 +1,24 @@
+name: vhh-llama-structure
+
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  - python=3.10
+  - pip
+  - cudatoolkit=11.8.0
+  - openmm=8.2.0
+  - pdbfixer=1.12
+  - anarci=2024.05.21
+  - hmmer=3.4
+  - biopython=1.88
+  - numpy=1.26.4
+  - scipy=1.15.2
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu118
+      - torch==2.0.1+cu118
+      - ImmuneBuilder==1.2
+      - einops==0.8.2
+      - requests==2.34.2
+      - tqdm==4.70.0

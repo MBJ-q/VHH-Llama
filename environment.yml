@@ -1,0 +1,18 @@
+name: vhh-llama
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.9
+  - pip
+  - git
+  - wget
+  - gzip
+  - pip:
+      - -r requirements.txt
+
+# Additional resources:
+# OASis: datasets/OASis_9mers_v1.db, about 22 GB decompressed.
+# PSA: distributed with TNP; requires execute permission and PATH access.
+# Preparation commands: see DEPENDENCIES.txt.

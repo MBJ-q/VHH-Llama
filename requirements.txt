@@ -1,0 +1,18 @@
+# Python 3.9
+
+# Training and generation
+torch==2.7.1
+transformers==4.57.6
+accelerate==1.10.1
+safetensors==0.7.0
+PyYAML==6.0.3
+tqdm==4.67.1
+
+# Developability evaluation
+biopython==1.85
+numpy==2.0.1
+scipy==1.13.1
+theraprofnano @ git+https://github.com/oxpig/TNP.git@29dcac72f1380e8538e8870f45a699d3c6156162
+
+--find-links https://west.rosettacommons.org/pyrosetta/quarterly/release/
+pyrosetta==2026.29+releasequarterly.80a0635615

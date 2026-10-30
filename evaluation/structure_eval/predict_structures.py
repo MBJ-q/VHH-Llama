@@ -14,29 +14,14 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT_CSVS = (
-    PROJECT_ROOT / "libraries" / "IgLM" / "structure_prediction_input.csv",
-    PROJECT_ROOT / "libraries" / "VHH-Llama" / "structure_prediction_input.csv",
+    PROJECT_ROOT / "VHH_libraries" / "IgLM" / "structure_prediction_input.csv",
+    PROJECT_ROOT / "VHH_libraries" / "VHH-Llama" / "structure_prediction_input.csv",
 )
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "predicted_structures"
 DEFAULT_GPUS = "0,1,2,3"
 DEFAULT_WORKERS_PER_GPU = "5"
 REQUIRED_COLUMNS = {"row_index", "sample_index", "generated_cdr3"}
-
-# Frameworks in examples/therapeutic_vhh_scaffolds.csv, in CSV row order.
-FRAMEWORKS = {
-    0: (
-        "EVQLVESGGGLVQPGGSLRLSCAASGRTFSYNPMGWFRQAPGKGRELVAAISRTGGSTYYPDSVEGRFTISRDNAKRMVYLQMNSLRAEDTAVYYC",
-        "WGQGTQVTVSS",
-    ),
-    1: (
-        "EVQLVESGGGLVQPGGSLRLSCAASGRTYDAMGWLRQAPGKEREFVAAISGSGDDTYYADSVKGRFTISRDNSKNTLYLQMNSLRPEDTAVYYC",
-        "WGQGTLVTVSS",
-    ),
-    2: (
-        "EVQLVESGGGLVQPGGSLRLSCAASGFTFSDYWMYWVRQAPGKGLEWVSEINTNGLITKYPDSVKGRFTISRDNAKNTLYLQMNSLRPEDTAVYYC",
-        "RGQGTLVTVSS",
-    ),
-}
+DEFAULT_FRAMEWORKS = PROJECT_ROOT / "examples" / "therapeutic_vhh_scaffolds.csv"
 
 
 @dataclass(frozen=True)
@@ -54,8 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Predict nanobody structures with NanoBodyBuilder2. By default, "
-            "process both libraries/IgLM/structure_prediction_input.csv and "
-            "libraries/VHH-Llama/structure_prediction_input.csv."
+            "process both VHH_libraries/IgLM/structure_prediction_input.csv and "
+            "VHH_libraries/VHH-Llama/structure_prediction_input.csv."
         )
     )
     parser.add_argument(
@@ -64,9 +49,22 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         default=DEFAULT_INPUT_CSVS,
         help=(
-            "Optional input CSV paths containing row_index, sample_index, and "
-            "generated_cdr3. Relative paths are resolved from the repository "
-            "root. Each CSV's parent directory names its output subdirectory."
+            "Optional CSV paths with full VHH_seq/VHH_sequence sequences, or "
+            "row_index, sample_index, generated_cdr3 and L_seq/R_seq. "
+            "CDR3-only CSVs require --frameworks, except the two published "
+            "article inputs. Relative paths are resolved from the repository "
+            "root. Each CSV filename (without .csv) names its output "
+            "subdirectory; structure_prediction_input.csv uses its parent "
+            "library directory name."
+        ),
+    )
+    parser.add_argument(
+        "--frameworks",
+        type=Path,
+        help=(
+            "CSV containing L_seq and R_seq for CDR3-only inputs. row_index "
+            "selects its zero-based data row. The published article inputs "
+            "use examples/therapeutic_vhh_scaffolds.csv by default."
         ),
     )
     parser.add_argument(
@@ -75,7 +73,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_OUTPUT_DIR,
         help=(
             "Output root (default: outputs/predicted_structures). PDBs are "
-            "saved under <output-dir>/<library>/row_<n>/. Relative paths "
+            "saved under <output-dir>/<input-name>/row_<n>/. Relative paths "
             "are resolved from the repository root."
         ),
     )
@@ -153,51 +151,87 @@ def parse_workers_per_gpu(
     return dict(zip(gpus, worker_counts))
 
 
-def load_tasks(input_csv: Path) -> dict[int, list[PredictionTask]]:
-    tasks_by_row = {row_index: [] for row_index in FRAMEWORKS}
+def load_frameworks(path: Path) -> dict[int, tuple[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = csv.DictReader(handle)
+        if not {"L_seq", "R_seq"}.issubset(rows.fieldnames or []):
+            raise ValueError(f"Framework CSV requires L_seq and R_seq: {path}")
+        return {
+            index: (row["L_seq"].strip().upper(), row["R_seq"].strip().upper())
+            for index, row in enumerate(rows)
+        }
+
+
+def load_tasks(
+    input_csv: Path, frameworks_csv: Path | None = None,
+) -> dict[int, list[PredictionTask]]:
+    tasks_by_row: dict[int, list[PredictionTask]] = {}
     seen_filenames: set[str] = set()
 
     with input_csv.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
-        missing = sorted(REQUIRED_COLUMNS - set(reader.fieldnames or []))
-        if missing:
+        columns = set(reader.fieldnames or [])
+        full_sequence_column = next(
+            (name for name in ("VHH_seq", "VHH_sequence") if name in columns), None,
+        )
+        inline_frameworks = {"L_seq", "R_seq"}.issubset(columns)
+        missing = sorted(REQUIRED_COLUMNS - columns)
+        if not full_sequence_column and missing:
             raise ValueError(
                 f"Input CSV is missing required columns: {', '.join(missing)}"
             )
+        frameworks = None
+        if not full_sequence_column and not inline_frameworks:
+            if frameworks_csv is None:
+                if input_csv.resolve() in DEFAULT_INPUT_CSVS:
+                    frameworks_csv = DEFAULT_FRAMEWORKS
+                else:
+                    raise ValueError(
+                        "CDR3-only input requires --frameworks or L_seq/R_seq "
+                        "columns; a complete sequence can be supplied as VHH_seq."
+                    )
+            frameworks = load_frameworks(frameworks_csv)
 
-        for csv_line, row in enumerate(reader, start=2):
+        for input_index, row in enumerate(reader):
+            csv_line = input_index + 2
             try:
-                row_index = int(row["row_index"])
-                sample_index = int(row["sample_index"])
+                row_index = int(row.get("row_index", 0))
+                sample_index = int(row.get("sample_index", input_index))
             except (TypeError, ValueError) as error:
                 raise ValueError(
                     f"Invalid row_index or sample_index at CSV line {csv_line}"
                 ) from error
+            if row_index < 0 or sample_index < 0:
+                raise ValueError(f"Negative sample identifier at CSV line {csv_line}")
 
-            if row_index not in FRAMEWORKS:
-                raise ValueError(
-                    f"Unsupported row_index {row_index} at CSV line {csv_line}; "
-                    f"expected one of {sorted(FRAMEWORKS)}"
-                )
-
-            generated_cdr3 = (row["generated_cdr3"] or "").strip().upper()
-            if not generated_cdr3:
-                raise ValueError(f"Empty generated_cdr3 at CSV line {csv_line}")
-
-            left_framework, right_framework = FRAMEWORKS[row_index]
+            if full_sequence_column:
+                sequence = (row[full_sequence_column] or "").strip().upper()
+                if not sequence:
+                    raise ValueError(f"Empty {full_sequence_column} at CSV line {csv_line}")
+            else:
+                generated_cdr3 = (row["generated_cdr3"] or "").strip().upper()
+                if inline_frameworks:
+                    left_framework = (row["L_seq"] or "").strip().upper()
+                    right_framework = (row["R_seq"] or "").strip().upper()
+                else:
+                    if row_index not in frameworks:
+                        raise ValueError(f"No framework for row_index={row_index} in {frameworks_csv}")
+                    left_framework, right_framework = frameworks[row_index]
+                if not generated_cdr3 or not left_framework or not right_framework:
+                    raise ValueError(f"Empty CDR3 or framework at CSV line {csv_line}")
+                sequence = left_framework + generated_cdr3 + right_framework
             task = PredictionTask(
                 row_index=row_index,
                 sample_index=sample_index,
-                sequence=left_framework + generated_cdr3 + right_framework,
+                sequence=sequence,
             )
             if task.filename in seen_filenames:
                 raise ValueError(f"Duplicate output filename: {task.filename}")
             seen_filenames.add(task.filename)
-            tasks_by_row[row_index].append(task)
+            tasks_by_row.setdefault(row_index, []).append(task)
 
-    for row_index, tasks in tasks_by_row.items():
-        if not tasks:
-            raise ValueError(f"Input CSV contains no sequences for row_{row_index}")
+    if not tasks_by_row:
+        raise ValueError(f"Input CSV contains no sequences: {input_csv}")
     return tasks_by_row
 
 
@@ -478,10 +512,14 @@ def predict_library(
     output_dir: Path,
     gpus: Sequence[int],
     workers_by_gpu: dict[int, int],
-    requested_rows: Sequence[int],
+    requested_rows: Sequence[int] | None,
     tqdm,
 ) -> tuple[int, int, int]:
-    tasks_by_row = load_tasks(input_csv)
+    tasks_by_row = load_tasks(input_csv, args.frameworks)
+    selected_rows = sorted(tasks_by_row) if requested_rows is None else requested_rows
+    unsupported_rows = set(selected_rows) - tasks_by_row.keys()
+    if unsupported_rows:
+        raise ValueError(f"Requested row_index values absent from {input_csv}: {sorted(unsupported_rows)}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Input CSV: {input_csv}")
@@ -492,7 +530,7 @@ def predict_library(
     total_skipped = 0
 
     total_failed = 0
-    for row_index in requested_rows:
+    for row_index in selected_rows:
         library_tasks = tasks_by_row[row_index]
         known_failure_records = load_failure_records(output_dir, row_index)
         known_failures = (
@@ -594,6 +632,13 @@ def resolve_path(path: Path) -> Path:
     return (path if path.is_absolute() else PROJECT_ROOT / path).resolve()
 
 
+def output_library_name(input_csv: Path) -> str:
+    """Keep generated CSV batches separate and retain published library names."""
+    if input_csv.name == "structure_prediction_input.csv":
+        return input_csv.parent.name
+    return input_csv.stem
+
+
 def main() -> int:
     args = parse_args()
 
@@ -601,15 +646,16 @@ def main() -> int:
         from tqdm.auto import tqdm
     except ImportError as error:
         raise RuntimeError(
-            "tqdm is required. Install it in the NBB2 environment before running."
+            "tqdm is required. Install the dependencies listed in "
+            "environment_structure.yml before running."
         ) from error
 
     input_csvs = [resolve_path(path) for path in args.input_csv]
-    library_names = [path.parent.name for path in input_csvs]
+    library_names = [output_library_name(path) for path in input_csvs]
     if len(set(library_names)) != len(library_names):
         raise ValueError(
-            "Input CSVs must have distinct parent directory names to avoid "
-            "overwriting library outputs"
+            "Input CSVs resolve to the same output directory name. Use "
+            "distinct CSV filenames or published-library directory names."
         )
     for input_csv in input_csvs:
         if not input_csv.is_file():
@@ -617,21 +663,13 @@ def main() -> int:
 
     gpus = parse_gpus(args.gpus)
     workers_by_gpu = parse_workers_per_gpu(args.workers_per_gpu, gpus)
-    requested_rows = (
-        sorted(set(args.row_indices))
-        if args.row_indices is not None
-        else sorted(FRAMEWORKS)
-    )
-    unsupported_rows = set(requested_rows) - set(FRAMEWORKS)
-    if unsupported_rows:
-        raise ValueError(
-            f"Unsupported --row-indices values: {sorted(unsupported_rows)}"
-        )
+    requested_rows = sorted(set(args.row_indices)) if args.row_indices is not None else None
+    args.frameworks = resolve_path(args.frameworks) if args.frameworks else None
     output_root = resolve_path(args.output_dir)
 
     total_succeeded = total_skipped = total_failed = 0
-    for input_csv in input_csvs:
-        output_dir = output_root / input_csv.parent.name
+    for input_csv, library_name in zip(input_csvs, library_names):
+        output_dir = output_root / library_name
         succeeded, skipped, failed = predict_library(
             args,
             input_csv,

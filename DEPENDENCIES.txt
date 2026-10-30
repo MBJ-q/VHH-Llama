@@ -1,0 +1,306 @@
+VHH-Llama dependency guide
+=========================
+
+Run the commands below from the repository root. The examples use Linux,
+Bash and Conda. This file is documentation; pip reads requirements.txt and
+Conda reads environment.yml (main environment) or environment_structure.yml
+(structure prediction).
+
+1. Functions and environments
+----------------------------
+
+Training, generation and perplexity evaluation:
+  src/Train.py, src/Generate.py, evaluation/ppl/PPL.py
+  Python 3.9; create the vhh-llama environment from environment.yml, which
+  installs the Python packages listed in requirements.txt.
+
+Developability evaluation:
+  evaluation/developability/Electrostatics/Charge.py
+    Biopython; net charge of the full VHH at pH 7.4.
+  evaluation/developability/Hydrophobicity/GRAVY.py
+    Biopython; CDR3 GRAVY.
+  evaluation/developability/Aggregation_propensity/SAP.py
+    PyRosetta; IMGT-numbered VHH structures, chain H.
+  evaluation/developability/Hydrophobicity/SASA.py
+    PyRosetta; VHH structures.
+  evaluation/developability/Electrostatics/PPC_PNC.py
+    TNP (theraprofnano), NumPy, SciPy and the PSA executable;
+    IMGT-numbered VHH structures, chain H.
+  evaluation/developability/Humanness/OASis_identity.py
+    OASis database and Python's built-in sqlite3 module.
+  Use the Python 3.9 environment created from environment.yml.
+
+Structure contact evaluation:
+  evaluation/structure_eval/cdr3_fr2_contact.py
+  NumPy; existing IMGT-numbered VHH structures, chain H.
+  Use the main vhh-llama environment. Outputs contain calculated CSV values.
+
+Structure prediction:
+  evaluation/structure_eval/predict_structures.py
+  Python 3.10; create the vhh-llama-structure environment from
+  environment_structure.yml.
+  This includes NanoBodyBuilder2 through ImmuneBuilder, PyTorch, OpenMM,
+  PDBFixer, ANARCI and HMMER. GPU prediction requires an NVIDIA GPU and a
+  driver compatible with the CUDA 11.8 PyTorch build in
+  environment_structure.yml.
+
+Use separate environments for environment.yml and environment_structure.yml:
+they specify different Python and PyTorch versions.
+
+2. Install the environments
+--------------------------
+
+Training, generation, perplexity and developability evaluation:
+
+  conda env create -f environment.yml
+  conda activate vhh-llama
+
+environment.yml installs Python, pip, Git, wget and gzip through Conda, then
+uses pip to install requirements.txt. Git supports the fixed TNP source
+installation; wget and gzip support the OASis download and extraction commands.
+requirements.txt also configures the official PyRosetta wheel source.
+Prepare OASis and PSA as described below; the environment YAML comments
+summarize these additional resources.
+
+If you manage Python 3.9 and the command-line tools yourself, you can instead
+install the Python packages directly:
+
+  python -m pip install -r requirements.txt
+
+Structure prediction:
+
+  conda env create -f environment_structure.yml
+  conda activate vhh-llama-structure
+
+Official sources:
+  TNP (fixed source revision):
+    https://github.com/oxpig/TNP/tree/29dcac72f1380e8538e8870f45a699d3c6156162
+  PyRosetta installation:
+    https://www.pyrosetta.org/downloads
+  ImmuneBuilder / NanoBodyBuilder2:
+    https://github.com/oxpig/ImmuneBuilder
+
+3. OASis database
+-----------------
+
+Required only for OASis identity evaluation. Obtain the OASis 9-mer database
+from the official dataset archive. The decompressed database is about 22 GB;
+allow additional space for the compressed file during extraction.
+
+  mkdir -p datasets
+  wget -O datasets/OASis_9mers_v1.db.gz https://zenodo.org/record/5164685/files/OASis_9mers_v1.db.gz
+  gunzip datasets/OASis_9mers_v1.db.gz
+
+The commands require wget and gzip. Skip the download if you already have
+the database. The default location used by OASis_identity.py is:
+
+  datasets/OASis_9mers_v1.db
+
+To use an existing database elsewhere, supply its path:
+
+  python evaluation/developability/Humanness/OASis_identity.py --oasis-db /path/to/OASis_9mers_v1.db
+
+Sources:
+  https://zenodo.org/record/5164685
+  https://github.com/Merck/BioPhi#1-download-oasis-database
+
+4. PSA executable
+-----------------
+
+Required only for PPC/PNC evaluation. TNP distributes the PSA binaries, and
+its installation configuration includes them. PSA must have execute
+permission and be discoverable as "psa" on PATH.
+
+Activate the environment containing TNP and check:
+
+  conda activate vhh-llama
+  command -v psa
+
+If PSA is installed at "$CONDA_PREFIX/bin/psa" but lacks execute permission:
+
+  chmod u+x "$CONDA_PREFIX/bin/psa"
+
+If that directory is missing from PATH in your current shell:
+
+  export PATH="$CONDA_PREFIX/bin:$PATH"
+
+Then check again:
+
+  command -v psa
+  test -x "$(command -v psa)"
+
+If the binary is absent, inspect the TNP installation rather than installing
+an unrelated Python package named "psa". The distributed binary must also
+be compatible with the host operating system and architecture.
+
+TNP binary installation configuration:
+  https://github.com/oxpig/TNP/blob/29dcac72f1380e8538e8870f45a699d3c6156162/setup.py
+
+5. Structure resources
+----------------------
+
+NanoBodyBuilder2 model weights are managed by ImmuneBuilder. Missing weights
+are downloaded when the predictor is initialized; existing compatible
+weights can be reused. The first prediction therefore needs network access
+if the weights are absent.
+
+5.1 Predict user-provided sequences
+
+The structure predictor accepts a CSV with complete sequences in VHH_seq or
+VHH_sequence. row_index and sample_index are optional for this format; when
+absent, row_index defaults to 0 and sample_index is the zero-based CSV data
+row number. For example:
+
+  python evaluation/structure_eval/predict_structures.py my_vhhs.csv --gpus 0 --workers-per-gpu 1
+
+To generate CDR3s for custom frameworks, set data.input_csv in configs/gen.yaml
+to a CSV with L_seq and R_seq (and optionally name), then run src/Generate.py.
+New generated CSVs preserve name, L_seq and R_seq alongside each CDR3, so they
+can be passed directly to the structure predictor:
+
+  python evaluation/structure_eval/predict_structures.py 'outputs/libs/gen_VHH-Llama(1).csv' --gpus 0 --workers-per-gpu 1
+
+For an older CDR3-only CSV, provide the framework file explicitly:
+
+  python evaluation/structure_eval/predict_structures.py my_cdr3s.csv --frameworks my_frameworks.csv --gpus 0 --workers-per-gpu 1
+
+CDR3 inputs require row_index, sample_index and generated_cdr3. The framework
+CSV requires L_seq and R_seq; row_index refers to its zero-based data row.
+One framework or any number of frameworks is supported. --row-indices selects
+only indices present in the input. Full-sequence columns take precedence;
+otherwise inline L_seq/R_seq are used, followed by the external framework file.
+
+Charge, GRAVY and OASis also read inline frameworks from new generated CSVs.
+For older custom CSVs, pass --frameworks to these sequence evaluators as well.
+Published generated_cdr3.csv and structure_prediction_input.csv inputs use
+the example scaffolds automatically. New generated batches have separate
+evaluation outputs under outputs/developability/<CSV-stem>/.
+
+5.2 Reproduce the article's sampled structure predictions
+
+The two bundled structure_prediction_input.csv files retain the article's
+sample identifiers. They automatically use frameworks from
+examples/therapeutic_vhh_scaffolds.csv. To predict the IgLM sample:
+
+  python evaluation/structure_eval/predict_structures.py VHH_libraries/IgLM/structure_prediction_input.csv --gpus 0 --workers-per-gpu 1
+
+Select VHH_libraries/VHH-Llama/structure_prediction_input.csv for the VHH-Llama
+sample. Omitting positional CSV arguments selects both bundled inputs.
+If a subset is saved elsewhere, supply
+--frameworks examples/therapeutic_vhh_scaffolds.csv explicitly.
+
+5.3 Use the provided structures directly
+
+Existing structures are available under:
+
+  VHH_libraries/IgLM/predicted_structures
+  VHH_libraries/VHH-Llama/predicted_structures
+
+Locate a structure using its library, row_index and sample_index. For example,
+IgLM row_index=0 and sample_index=7 corresponds to:
+
+  VHH_libraries/IgLM/predicted_structures/row_0/row_0_sample_7.pdb
+
+These PDBs can be used directly for property evaluation. Structure prediction
+and the structure-prediction environment are not required for this route;
+activate the main environment and the metric-specific dependencies described
+in section 1. For example:
+
+  python evaluation/developability/Hydrophobicity/SASA.py --input VHH_libraries/IgLM/predicted_structures
+
+SAP and PPC/PNC expect structures that already have IMGT numbering, including
+insertion codes. These evaluation scripts do not perform renumbering.
+SAP, PPC/PNC and SASA default to the published VHH-Llama structures:
+
+  VHH_libraries/VHH-Llama/predicted_structures
+
+Select the published IgLM structures using:
+
+  --input VHH_libraries/IgLM/predicted_structures
+
+The default evaluation outputs are separated by library:
+
+  outputs/developability/VHH-Llama/<metric>_values.csv
+  outputs/developability/IgLM/<metric>_values.csv
+
+CDR3--FR2 soft contact score:
+
+  python evaluation/structure_eval/cdr3_fr2_contact.py
+  python evaluation/structure_eval/cdr3_fr2_contact.py --input VHH_libraries/IgLM/predicted_structures
+
+The default input is VHH_libraries/VHH-Llama/predicted_structures. The default
+output is outputs/structure_eval/<library>/cdr3_fr2_contact_values.csv.
+Use --output to choose another CSV, --workers for CPU processes (default 1),
+and --limit to select the first N records.
+
+This score uses FR2 positions H39--H55 and CDR3 positions H105--H117, including
+insertion codes. The first and last two observed CDR3 residues are excluded.
+Each remaining residue contributes 1 / (1 + exp((d - 4.5) / 0.4)), where d is
+its minimum heavy-atom distance to FR2 in angstroms. contact_nres is the sum
+of these contributions, retaining the original calculation definition.
+
+For published structures, the neighboring structure_prediction_input.csv is
+read automatically so missing predictions remain in the output. For another
+batch, --metadata can supply its input CSV; without metadata, the script
+analyzes existing row_*/row_<index>_sample_<index>.pdb files. Result statuses
+retain the original meanings: ok, missing_structure, and structure_error.
+Value columns include structure_cdr3_length, nonstem_cdr3_length and
+contact_nres; metadata and error columns are also retained. No plots are made.
+The command finishes writing the CSV and returns exit status 1 if any record
+has no score. The provided VHH-Llama sample includes two missing predictions.
+
+5.4 Prediction output directories and resume behavior
+
+For structure_prediction_input.csv, prediction outputs use the parent library
+name: outputs/predicted_structures/<library>/row_<n>/.
+
+Other input CSVs use their filenames without the .csv extension. For example,
+two generated batches in outputs/libs/ have separate structure directories:
+
+  outputs/libs/gen_VHH-Llama(1).csv
+    -> outputs/predicted_structures/gen_VHH-Llama(1)/row_<n>/
+  outputs/libs/gen_VHH-Llama(2).csv
+    -> outputs/predicted_structures/gen_VHH-Llama(2)/row_<n>/
+
+Running the same CSV again resumes within its own structure directory.
+To predict both batches, for example:
+
+  python evaluation/structure_eval/predict_structures.py \
+    'outputs/libs/gen_VHH-Llama(1).csv' \
+    'outputs/libs/gen_VHH-Llama(2).csv' \
+    --gpus 0 --workers-per-gpu 1
+
+To evaluate a batch's structures, select its directory with --input, for
+example --input 'outputs/predicted_structures/gen_VHH-Llama(1)'. Use --output
+to override the evaluation CSV path.
+
+6. Minimal availability checks
+------------------------------
+
+In the vhh-llama environment:
+
+  python -m pip check
+  python -c "import torch, transformers, Bio, numpy, scipy, pyrosetta; from theraprofnano.Hydrophobicity_and_Charge_Profiler.Hydrophobicity_and_Charge_Assigner import CreateAnnotation; print('Imports available')"
+  command -v psa
+
+After preparing the OASis database, check that it opens in read-only mode
+and contains the two tables used by the evaluator:
+
+python - <<'PY'
+from pathlib import Path
+import sqlite3
+path = Path('datasets/OASis_9mers_v1.db').resolve()
+connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+for table in ('subjects', 'peptides'):
+    connection.execute('SELECT 1 FROM ' + table + ' LIMIT 0')
+connection.close()
+print('OASis database and required tables available')
+PY
+
+In the vhh-llama-structure environment:
+
+  python -m pip check
+  python -c "import torch, ImmuneBuilder, openmm, pdbfixer; print('CUDA available:', torch.cuda.is_available())"
+
+These checks confirm basic availability. They do not run model inference or
+a full library evaluation, and do not replace a clean installation test.
