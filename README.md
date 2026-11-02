@@ -2,150 +2,163 @@
 
 VHH-Llama is a language model for generating nanobody CDR3 sequences. This repository includes pretrained weights, generated libraries, predicted structures, and training and evaluation scripts.
 
-[Installation](#installation) · [Quick start](#quick-start) · [Generation](#generate-cdr3-sequences) · [Structures](#predict-or-use-vhh-structures) · [Evaluation](#evaluate-sequences-and-structures) · [Training and PPL](#training-and-perplexity) · [Support](#support)
+[Installation](#installation) · [Quick start](#quick-start) · [Libraries](#provided-libraries) · [Structure prediction](#structure-prediction) · [Evaluation](#evaluation) · [Training and PPL](#training-and-ppl) · [Support](#support)
 
 ## Installation
 
-Run commands from the repository root. These instructions target Linux with Conda; generation and structure prediction require an NVIDIA GPU.
-
-| Environment | Used for |
-|---|---|
-| `environment.yml` — Python 3.9 | Training, generation, PPL and property evaluation |
-| `environment_structure.yml` — Python 3.10 | NanoBodyBuilder2 structure prediction |
+Generation requires Python 3.9 and an NVIDIA GPU. From the repository root on Linux with Conda, install the main environment:
 
 ```bash
 conda env create -f environment.yml
 conda activate vhh-llama
 ```
 
-Users must obtain the OASis database separately from its official source (~23 GB decompressed); it is not included in this repository or the Hugging Face dataset. PPC/PNC requires TNP's PSA executable on `PATH`. SAP and SASA use PyRosetta, included in the main dependencies.
-
-See [DEPENDENCIES.txt](DEPENDENCIES.txt) for installation details and resource preparation.
+This environment installs [requirements.txt](requirements.txt) and supports generation, training, PPL and property evaluation. Structure prediction uses a separate environment below.
 
 ## Quick start
 
-Calculate GRAVY for 10 provided VHH-Llama CDR3s on CPU:
+Use the pretrained model in `weights/VHH-Llama/` to generate a small CDR3 library for the three example scaffolds in `examples/therapeutic_vhh_scaffolds.csv`.
 
-```bash
-python evaluation/developability/Hydrophobicity/GRAVY.py --limit 10
-```
-
-Output: `outputs/developability/VHH-Llama/gravy_values.csv`.
-
-## Generate CDR3 sequences
-
-Pretrained weights are in `weights/VHH-Llama/`. Configure the input, GPU and sampling settings in `configs/gen.yaml`. For a small first run, set `generate.samples_return_per_input` to `10` and `generate.device` to `[0]`.
+In `configs/gen.yaml`, set `samples_return_per_input: 10` and `device: [0]` under `generate`, keeping the other settings. Run:
 
 ```bash
 python src/Generate.py --config configs/gen.yaml
 ```
 
-The default input is `examples/therapeutic_vhh_scaffolds.csv`. Custom context CSVs require `L_seq` and `R_seq`; `name` is optional. Full VHH sequences are reconstructed as `L_seq + generated_cdr3 + R_seq`.
+The first run saves 10 unique CDR3s per scaffold (30 in total) to `outputs/libs/gen_VHH-Llama(1).csv`, with configuration and statistics files. Later runs use a new batch number.
 
-Generated batches are saved as `outputs/libs/gen_VHH-Llama(1).csv`, with matching configuration and statistics files. Each CSV retains the sequence contexts and sample identifiers for downstream analysis.
+<details>
+<summary>Generation settings, custom scaffolds, and CSV output</summary>
 
-The default configuration generates 100,000 unique CDR3s per context. Generation currently supports one GPU per run.
+| Setting in `configs/gen.yaml` | Purpose |
+|---|---|
+| `data.input_csv` | Scaffold CSV; the supplied file has three examples |
+| `generate.samples_return_per_input` | Unique CDR3s per scaffold; supplied value: `100000` |
+| `generate.sampling_batch_size` | Sequences sampled per GPU round |
+| `generate.temperature`, `generate.top_p` | Sampling parameters |
+| `generate.device` | GPU index, e.g. `[0]`; one GPU per run |
 
-## Predict or use VHH structures
+Custom scaffold CSVs require `L_seq` (VHH sequence before CDR3) and `R_seq` (sequence after CDR3); `name` is optional.
 
-### Provided libraries and structures
+Generated CSV columns:
+
+```text
+row_index,sample_index,generated_cdr3,length,eos_reached,name,L_seq,R_seq
+```
+
+`row_index` identifies the zero-based input scaffold; `sample_index` identifies a CDR3 within that scaffold. Uniqueness is enforced per scaffold. Reconstruct a full VHH as `L_seq + generated_cdr3 + R_seq`.
+
+</details>
+
+## Provided libraries
 
 | Library | Generated CDR3s | Sampled structure inputs | Available PDBs |
 |---|---:|---:|---:|
 | IgLM | 300,000 | 30,000 | 30,000 |
 | VHH-Llama | 300,000 | 30,000 | 29,998 |
 
-Each `VHH_libraries/<library>/` contains `generated_cdr3.csv`, `structure_prediction_input.csv`, and `predicted_structures/`. The libraries use the three contexts in `examples/therapeutic_vhh_scaffolds.csv`.
+Each `VHH_libraries/<library>/` contains `generated_cdr3.csv`, `structure_prediction_input.csv`, and `predicted_structures/`. Existing PDBs can be used directly for evaluation.
 
-Existing PDBs can be evaluated directly, using the main environment. Locate them by `row_index` and `sample_index`:
+## Structure prediction
 
-```text
-VHH_libraries/<library>/predicted_structures/row_<n>/row_<n>_sample_<index>.pdb
-```
-
-The two failed VHH-Llama predictions are recorded in `predicted_structures/row_1_failures.json`.
-
-### Predict new structures
+Create the separate NanoBodyBuilder2 environment and predict a generated batch:
 
 ```bash
 conda env create -f environment_structure.yml
 conda activate vhh-llama-structure
+python evaluation/structure_eval/predict_structures.py \
+  'outputs/libs/gen_VHH-Llama(1).csv' --gpus 0 --workers-per-gpu 1
 ```
 
-Predict a generated batch:
+Output: `outputs/predicted_structures/gen_VHH-Llama(1)/row_<n>/`. ImmuneBuilder downloads missing model weights on first use; the environment requires a CUDA 11.8-compatible NVIDIA driver.
 
-```bash
-python evaluation/structure_eval/predict_structures.py 'outputs/libs/gen_VHH-Llama(1).csv' \
-  --gpus 0 --workers-per-gpu 1
-```
+<details>
+<summary>Other inputs, reproduction, and prediction options</summary>
 
-Output: `outputs/predicted_structures/gen_VHH-Llama(1)/row_<n>/`.
+- Complete VHH sequences: use a CSV with `VHH_seq` or `VHH_sequence`.
+- CDR3-only files: require `row_index`, `sample_index`, `generated_cdr3`, plus inline `L_seq`/`R_seq` or a scaffold CSV supplied with `--frameworks`.
+- Article reproduction: use `VHH_libraries/<library>/structure_prediction_input.csv`; these files automatically use the example scaffolds. A subset saved elsewhere needs `--frameworks examples/therapeutic_vhh_scaffolds.csv`.
+- Options: `--gpus` selects GPUs, `--workers-per-gpu` sets processes, and `--row-indices` selects scaffolds. Re-running resumes existing results; use `--overwrite` or `--retry-failed` as needed.
 
-For custom full VHH sequences, supply a CSV with `VHH_seq` or `VHH_sequence`. CDR3-only inputs require inline `L_seq`/`R_seq` or an external context CSV through `--frameworks`.
+Ordinary CSVs use their filename stem as the output folder; `structure_prediction_input.csv` uses its parent library name. Multiple CSV inputs are supported.
 
-To reproduce sampled predictions, replace the input above with `VHH_libraries/<library>/structure_prediction_input.csv`. Each sampled CSV contains 30,000 sequences; omitting input arguments selects both provided libraries.
+Existing PDB layout: `VHH_libraries/<library>/predicted_structures/row_<n>/row_<n>_sample_<index>.pdb`. The two VHH-Llama failures are recorded in `VHH_libraries/VHH-Llama/predicted_structures/row_1_failures.json`.
 
-GPU indices and workers are configurable. ImmuneBuilder downloads missing NanoBodyBuilder2 weights on first use. Resume, subset and retry options are documented in [DEPENDENCIES.txt](DEPENDENCIES.txt).
+</details>
 
-## Evaluate sequences and structures
+## Evaluation
 
-Switch back to the main environment:
+Each evaluator processes one library and writes CSV values. For example, calculate GRAVY for a generated batch:
 
 ```bash
 conda activate vhh-llama
+python evaluation/developability/Hydrophobicity/GRAVY.py \
+  --input 'outputs/libs/gen_VHH-Llama(1).csv'
 ```
 
-Each script analyzes one library and outputs CSV values.
-
-| Metric | Input and calculation | Script |
+| Metric | Input | Script |
 |---|---|---|
-| Charge | Full-VHH net charge at pH 7.4 | [Charge.py](evaluation/developability/Electrostatics/Charge.py) |
-| GRAVY | CDR3 hydropathy | [GRAVY.py](evaluation/developability/Hydrophobicity/GRAVY.py) |
-| OASis identity | Full-VHH human 9-mer identity at 50% prevalence | [OASis_identity.py](evaluation/developability/Humanness/OASis_identity.py) |
-| SAP | Structure-based CDR3 SAP and SAP per residue | [SAP.py](evaluation/developability/Aggregation_propensity/SAP.py) |
-| PPC/PNC | Positive and negative CDR charge patches | [PPC_PNC.py](evaluation/developability/Electrostatics/PPC_PNC.py) |
-| SASA | Total and hydrophobic SASA, including hydrophobic fraction | [SASA.py](evaluation/developability/Hydrophobicity/SASA.py) |
-| CDR3–FR2 contact | Structure-based soft contact score | [cdr3_fr2_contact.py](evaluation/structure_eval/cdr3_fr2_contact.py) |
+| Net charge at pH 7.4 | VHH sequence | [Charge.py](evaluation/developability/Electrostatics/Charge.py) |
+| GRAVY | CDR3 sequence | [GRAVY.py](evaluation/developability/Hydrophobicity/GRAVY.py) |
+| OASis identity | VHH sequence | [OASis_identity.py](evaluation/developability/Humanness/OASis_identity.py) |
+| CDR3 SAP | PDB structures | [SAP.py](evaluation/developability/Aggregation_propensity/SAP.py) |
+| PPC/PNC | PDB structures | [PPC_PNC.py](evaluation/developability/Electrostatics/PPC_PNC.py) |
+| SASA and hydrophobic fraction | PDB structures | [SASA.py](evaluation/developability/Hydrophobicity/SASA.py) |
+| CDR3–FR2 contact score | PDB structures | [cdr3_fr2_contact.py](evaluation/structure_eval/cdr3_fr2_contact.py) |
 
-Defaults use the provided VHH-Llama sequences or structures. Use `--input` for another library, `--output` for another CSV, and `--limit` for a small run. Structure evaluators also accept `--workers`.
+Results are saved under `outputs/developability/<library-or-batch>/` or, for contacts, `outputs/structure_eval/<library-or-batch>/`.
 
-For example, evaluate 10 existing IgLM structures:
+<details>
+<summary>Evaluation inputs, options, and external resources</summary>
+
+Sequence evaluators accept the generated CSV format above; older CDR3-only inputs need `--frameworks`. Structure evaluators accept a directory following the PDB layout above. SAP, PPC/PNC and contact scoring require IMGT-numbered chain H.
+
+Use `--input` to select a library, `--output` to choose a CSV, `--limit` for a subset, and `--workers` for CPU processes in structure evaluation. Without `--input`, the provided VHH-Llama library is used. Inspect result status and error columns.
+
+**OASis:** download and decompress the official [9-mer database](https://zenodo.org/record/5164685) (~23 GB). It is not included in this repository or the VHH-Llama Hugging Face dataset.
 
 ```bash
-python evaluation/developability/Hydrophobicity/SASA.py \
-  --input VHH_libraries/IgLM/predicted_structures --limit 10
+mkdir -p datasets
+wget -O datasets/OASis_9mers_v1.db.gz https://zenodo.org/record/5164685/files/OASis_9mers_v1.db.gz
+gunzip datasets/OASis_9mers_v1.db.gz
 ```
 
-Calculate CDR3–FR2 contacts:
+The default database path is `datasets/OASis_9mers_v1.db`; use `--oasis-db /path/to/OASis_9mers_v1.db` for an existing copy.
 
-```bash
-python evaluation/structure_eval/cdr3_fr2_contact.py --limit 10
-```
+**PPC/PNC:** uses [TNP](https://github.com/oxpig/TNP) and its bundled PSA executable, installed through `requirements.txt`.
 
-Default outputs:
+**SAP/SASA:** PyRosetta is included in the main environment; its official wheel source is configured in `requirements.txt`.
 
-```text
-outputs/developability/<library-or-batch>/<metric>_values.csv
-outputs/structure_eval/<library-or-batch>/cdr3_fr2_contact_values.csv
-```
+</details>
 
-Custom sequence inputs require `row_index`, `sample_index`, `generated_cdr3`, and inline `L_seq`/`R_seq` or `--frameworks`.
+## Training and PPL
 
-Structure inputs follow the PDB naming above. SAP, PPC/PNC and CDR3–FR2 contacts require IMGT numbering on chain H. Inspect the status and error columns before using results.
-
-## Training and perplexity
-
-### Download the datasets
-
-Download the CSVs from [Hugging Face](https://huggingface.co/datasets/Parken/VHH-Llama) and save them at the following paths:
+Download the CSVs from [Hugging Face](https://huggingface.co/datasets/Parken/VHH-Llama) and save them at these paths:
 
 | File | Records | Purpose |
 |---|---:|---|
 | `datasets/train.csv` | 16,964,278 | Training |
-| `datasets/val.csv` | 171,356 | Validation and checkpoint selection |
+| `datasets/val.csv` | 171,356 | Validation |
 | `datasets/test.csv` | 1,979,175 | VHHCorpus PPL evaluation |
 
-Train/validation splitting uses complete VHH Linclust clusters at the recorded 85% threshold, seed 42, and approximately 1% of sequences for validation. The VHHCorpus PPL set is separate from this partition.
+Review GPU and training settings in `configs/train.yaml`, then train:
+
+```bash
+conda activate vhh-llama
+python src/Train.py --config configs/train.yaml
+```
+
+Calculate PPL with the provided model:
+
+```bash
+conda activate vhh-llama
+python evaluation/ppl/PPL.py --checkpoint weights/VHH-Llama --input_csv datasets/test.csv
+```
+
+Training outputs: `outputs/VHH-Llama/versionN/`. PPL results: `outputs/PPL/`.
+
+<details>
+<summary>Dataset format and PPL options</summary>
 
 Training and validation require this exact header and column order:
 
@@ -153,27 +166,9 @@ Training and validation require this exact header and column order:
 CDR3_seq,VHH_seq,L_seq,R_seq
 ```
 
-PPL inputs require `L_seq`, `CDR3_seq` and `R_seq`.
+PPL requires `L_seq`, `CDR3_seq` and `R_seq`. Use `--limit 10` for a small run or `--visible_gpus 0,1` for multiple GPUs.
 
-### Train a model
-
-Review GPU and training settings in `configs/train.yaml`, then run:
-
-```bash
-python src/Train.py --config configs/train.yaml
-```
-
-Checkpoints, best/final models and training results are saved under `outputs/VHH-Llama/versionN/`.
-
-### Calculate PPL
-
-```bash
-python evaluation/ppl/PPL.py \
-  --checkpoint weights/VHH-Llama \
-  --input_csv datasets/test.csv
-```
-
-Results in `outputs/PPL/` include per-position CDR3 probabilities and perplexity summaries with and without EOS. Use `--limit 10` for a small run.
+</details>
 
 ## Support
 
