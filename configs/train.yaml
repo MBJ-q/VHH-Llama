@@ -11,8 +11,8 @@ model:
   rope_theta: 10000.0
 
 data:
-  train_csv: datasets/AbNativ2_Re_Plus/train.csv
-  val_csv: datasets/AbNativ2_Re_Plus/val.csv
+  train_csv: datasets/train.csv
+  val_csv: datasets/val.csv
   max_length: 170
 
 train:
